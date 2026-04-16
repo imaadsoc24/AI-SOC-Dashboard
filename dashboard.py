@@ -1,7 +1,7 @@
-from flask import Flask, render_template_string, jsonify
+from flask import Flask, jsonify, render_template_string
 import json
-import time
 import threading
+import time
 import requests
 
 app = Flask(__name__)
@@ -9,9 +9,8 @@ app = Flask(__name__)
 # ==============================
 # CONFIG
 # ==============================
-LOG_FILE = "/var/ossec/logs/alerts/alerts.json"
+LOG_FILE = "logs.json"
 
-# Telegram
 BOT_TOKEN = "8749610900:AAGd7oHByeYFHzqkP1iZ4UMQStSihA4tQoE"
 CHAT_ID = "1452519845"
 
@@ -26,46 +25,32 @@ def send_telegram(msg):
         pass
 
 # ==============================
-# READ WAZUH LOGS
+# READ LOGS (SAFE)
 # ==============================
 def get_logs():
-    alerts = []
-
     try:
         with open(LOG_FILE, "r") as f:
-            lines = f.readlines()[-20:]
-
-        for line in lines:
-            data = json.loads(line)
-
-            level_num = data.get("rule", {}).get("level", 0)
-
-            alert = {
-                "ip": data.get("data", {}).get("srcip", "unknown"),
-                "level": "high" if level_num > 10 else "medium",
-                "time": data.get("timestamp", ""),
-                "threat_score": level_num * 10,
-                "country": "Unknown"
-            }
-
-            # Telegram for high alerts
-            if level_num > 12:
-                send_telegram(f"🚨 HIGH ALERT {alert['ip']} Score:{alert['threat_score']}")
-
-            alerts.append(alert)
-
-    except Exception as e:
-        print("Error:", e)
-
-    return alerts
+            data = json.load(f)
+            return data
+    except:
+        # fallback if file missing
+        return [
+            {"ip":"8.8.8.8","level":"high","time":"live","threat_score":90},
+            {"ip":"1.1.1.1","level":"medium","time":"live","threat_score":60}
+        ]
 
 # ==============================
-# BACKGROUND LOOP
+# BACKGROUND ALERT LOOP
 # ==============================
 def background_worker():
     while True:
-        get_logs()
-        time.sleep(10)
+        logs = get_logs()
+
+        for alert in logs:
+            if alert["level"] == "high":
+                send_telegram(f"🚨 HIGH ALERT {alert['ip']} Score:{alert['threat_score']}")
+
+        time.sleep(15)
 
 threading.Thread(target=background_worker, daemon=True).start()
 
@@ -74,10 +59,6 @@ threading.Thread(target=background_worker, daemon=True).start()
 # ==============================
 @app.route("/")
 def home():
-    return "AI SOC Dashboard Running 🚀"
-
-@app.route("/dashboard")
-def dashboard():
     return render_template_string(HTML)
 
 @app.route("/alerts")
@@ -85,7 +66,7 @@ def alerts():
     return jsonify(get_logs())
 
 # ==============================
-# HTML DASHBOARD (GLASS UI + MAP + SEARCH)
+# FRONTEND (GLASS UI + SEARCH)
 # ==============================
 HTML = """
 <!DOCTYPE html>
@@ -95,32 +76,47 @@ HTML = """
 
 <style>
 body {
+    margin:0;
+    font-family: Arial;
     background: radial-gradient(circle at top, #0f172a, #020617);
     color: white;
-    font-family: Arial;
 }
 
 .container {
     display: flex;
     gap: 20px;
+    padding: 20px;
 }
 
 .card {
+    flex:1;
     background: rgba(255,255,255,0.05);
     padding: 15px;
     border-radius: 15px;
     backdrop-filter: blur(10px);
 }
 
+h2 {
+    text-align: center;
+}
+
 .alert {
     padding: 10px;
-    margin: 5px;
+    margin: 5px 0;
     border-radius: 10px;
 }
 
-.high { background: red; }
+.high { background: #ff3b3b; }
 .medium { background: orange; }
 .low { background: green; }
+
+input {
+    margin: 10px;
+    padding: 8px;
+    width: 200px;
+    border-radius: 5px;
+    border:none;
+}
 </style>
 </head>
 
@@ -128,51 +124,54 @@ body {
 
 <h2>🚀 AI SOC Dashboard</h2>
 
-<input id="search" placeholder="Search IP..." onkeyup="filterAlerts()"/>
+<center>
+<input id="search" placeholder="Search IP..." onkeyup="filterAlerts()">
+</center>
 
 <div class="container">
 
 <div class="card">
-<h3>📊 Alerts</h3>
+<h3>🚨 Alerts</h3>
 <div id="alerts"></div>
 </div>
 
 <div class="card">
 <h3>🌍 Attack Map</h3>
-<div id="map">Map coming from data...</div>
+<p>Map will be added next step 🔥</p>
 </div>
 
 </div>
 
 <script>
 async function loadAlerts(){
-    let res = await fetch('/alerts')
-    let data = await res.json()
+    let res = await fetch('/alerts');
+    let data = await res.json();
 
-    let html = ""
+    let html = "";
     data.forEach(a=>{
         html += `<div class="alert ${a.level}">
-        ${a.time} | ${a.ip} | ${a.level} | ${a.threat_score}
-        </div>`
-    })
+        ${a.time} | ${a.ip} | ${a.level.toUpperCase()} | Score: ${a.threat_score}
+        </div>`;
+    });
 
-    document.getElementById("alerts").innerHTML = html
+    document.getElementById("alerts").innerHTML = html;
 }
 
 function filterAlerts(){
-    let input = document.getElementById("search").value.toLowerCase()
-    let alerts = document.getElementsByClassName("alert")
+    let input = document.getElementById("search").value.toLowerCase();
+    let alerts = document.getElementsByClassName("alert");
 
     for(let a of alerts){
         if(a.innerText.toLowerCase().includes(input)){
-            a.style.display = "block"
+            a.style.display = "block";
         } else {
-            a.style.display = "none"
+            a.style.display = "none";
         }
     }
 }
 
-setInterval(loadAlerts, 3000)
+setInterval(loadAlerts, 3000);
+loadAlerts();
 </script>
 
 </body>

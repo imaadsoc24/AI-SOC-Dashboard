@@ -1,0 +1,5 @@
+[
+  {"ip":"8.8.8.8","level":"high","time":"12:00","threat_score":90},
+  {"ip":"1.1.1.1","level":"medium","time":"12:01","threat_score":60},
+  {"ip":"185.199.108.153","level":"low","time":"12:02","threat_score":30}
+]
