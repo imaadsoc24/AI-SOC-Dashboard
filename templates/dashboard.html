@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>AI SOC Dashboard</title>
+
+<style>
+body {
+    background: radial-gradient(circle at top, #0f172a, #020617);
+    color: white;
+    font-family: Arial;
+}
+
+h1 {
+    text-align:center;
+    margin:20px;
+}
+
+.container {
+    display:flex;
+    gap:20px;
+}
+
+.left, .right {
+    width:50%;
+}
+
+.card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(10px);
+    padding:15px;
+    margin:10px;
+    border-radius:15px;
+}
+
+.alert {
+    padding:10px;
+    margin:5px;
+    border-radius:10px;
+}
+
+.high { background:#ff4d4d; }
+.medium { background:#ffa500; }
+.low { background:#00cc66; }
+
+.map-dot {
+    height:10px;
+    width:10px;
+    background:red;
+    border-radius:50%;
+    position:absolute;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🚀 AI SOC Dashboard</h1>
+
+<div class="container">
+
+<!-- LEFT PANEL -->
+<div class="left">
+
+<div class="card">
+<h3>📊 Stats</h3>
+Total: <span id="total">0</span><br>
+High: <span id="high">0</span><br>
+Medium: <span id="medium">0</span><br>
+Low: <span id="low">0</span>
+</div>
+
+<div class="card">
+<h3>🧠 AI Insights</h3>
+<div id="ai"></div>
+</div>
+
+<div class="card">
+<h3>🚨 Live Alerts</h3>
+<div id="alerts"></div>
+</div>
+
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="right">
+
+<div class="card" style="height:400px; position:relative;">
+<h3>🌍 Attack Map</h3>
+<div id="map"></div>
+</div>
+
+</div>
+
+</div>
+
+<script>
+async function load() {
+    let res = await fetch('/alerts');
+    let data = await res.json();
+
+    let alertsDiv = document.getElementById("alerts");
+    let mapDiv = document.getElementById("map");
+
+    alertsDiv.innerHTML = "";
+    mapDiv.innerHTML = "";
+
+    let high=0,medium=0,low=0;
+
+    data.forEach(a=>{
+        let cls = a.level;
+        if(cls=="high") high++;
+        if(cls=="medium") medium++;
+        if(cls=="low") low++;
+
+        alertsDiv.innerHTML += `
+        <div class="alert ${cls}">
+        ${a.time} | ${a.ip} | ${a.level.toUpperCase()} | ${a.threat_score}%
+        </div>
+        `;
+
+        // fake map dots
+        let dot = document.createElement("div");
+        dot.className="map-dot";
+        dot.style.top = Math.random()*300+"px";
+        dot.style.left = Math.random()*300+"px";
+        mapDiv.appendChild(dot);
+    });
+
+    document.getElementById("total").innerText = data.length;
+    document.getElementById("high").innerText = high;
+    document.getElementById("medium").innerText = medium;
+    document.getElementById("low").innerText = low;
+
+    document.getElementById("ai").innerHTML =
+        high > 5 ? "⚠️ High threat activity detected"
+        : "✅ System stable";
+}
+
+setInterval(load,3000);
+load();
+</script>
+
+</body>
+</html>
