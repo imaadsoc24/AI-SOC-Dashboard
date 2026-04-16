@@ -1,22 +1,16 @@
-from flask import Flask, jsonify, render_template_string
-import json
-import threading
-import time
-import requests
+from flask import Flask, jsonify, render_template_string, send_file
+import json, threading, time, requests, csv
 
 app = Flask(__name__)
 
-# ==============================
-# CONFIG
-# ==============================
 LOG_FILE = "logs.json"
 
 BOT_TOKEN = "8749610900:AAGd7oHByeYFHzqkP1iZ4UMQStSihA4tQoE"
 CHAT_ID = "1452519845"
 
-# ==============================
-# TELEGRAM ALERT
-# ==============================
+# ======================
+# TELEGRAM
+# ======================
 def send_telegram(msg):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -24,39 +18,41 @@ def send_telegram(msg):
     except:
         pass
 
-# ==============================
-# READ LOGS (SAFE)
-# ==============================
+# ======================
+# LOAD LOGS
+# ======================
 def get_logs():
     try:
         with open(LOG_FILE, "r") as f:
-            data = json.load(f)
-            return data
+            return json.load(f)
     except:
-        # fallback if file missing
-        return [
-            {"ip":"8.8.8.8","level":"high","time":"live","threat_score":90},
-            {"ip":"1.1.1.1","level":"medium","time":"live","threat_score":60}
-        ]
+        return []
 
-# ==============================
-# BACKGROUND ALERT LOOP
-# ==============================
-def background_worker():
+# ======================
+# AI ANALYSIS
+# ======================
+def ai_insights(logs):
+    high = sum(1 for l in logs if l["level"]=="high")
+    if high > 3:
+        return "🚨 Multiple high threats detected"
+    return "✅ System stable"
+
+# ======================
+# BACKGROUND ALERT
+# ======================
+def worker():
     while True:
         logs = get_logs()
-
-        for alert in logs:
-            if alert["level"] == "high":
-                send_telegram(f"🚨 HIGH ALERT {alert['ip']} Score:{alert['threat_score']}")
-
+        for l in logs:
+            if l["level"]=="high":
+                send_telegram(f"🚨 {l['ip']} HIGH Score:{l['threat_score']}")
         time.sleep(15)
 
-threading.Thread(target=background_worker, daemon=True).start()
+threading.Thread(target=worker, daemon=True).start()
 
-# ==============================
+# ======================
 # ROUTES
-# ==============================
+# ======================
 @app.route("/")
 def home():
     return render_template_string(HTML)
@@ -65,67 +61,68 @@ def home():
 def alerts():
     return jsonify(get_logs())
 
-# ==============================
-# FRONTEND (GLASS UI + SEARCH)
-# ==============================
+@app.route("/insights")
+def insights():
+    return jsonify({"msg": ai_insights(get_logs())})
+
+@app.route("/export")
+def export():
+    logs = get_logs()
+    with open("export.csv","w") as f:
+        writer = csv.DictWriter(f, fieldnames=["ip","level","time","threat_score","lat","lon"])
+        writer.writeheader()
+        writer.writerows(logs)
+    return send_file("export.csv", as_attachment=True)
+
+# ======================
+# HTML
+# ======================
 HTML = """
 <!DOCTYPE html>
 <html>
 <head>
 <title>AI SOC Dashboard</title>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
 body {
-    margin:0;
-    font-family: Arial;
-    background: radial-gradient(circle at top, #0f172a, #020617);
-    color: white;
+    background:#0f172a;
+    color:white;
+    font-family:Arial;
 }
 
 .container {
-    display: flex;
-    gap: 20px;
-    padding: 20px;
+    display:flex;
+    gap:20px;
+    padding:20px;
 }
 
 .card {
     flex:1;
-    background: rgba(255,255,255,0.05);
-    padding: 15px;
-    border-radius: 15px;
-    backdrop-filter: blur(10px);
+    background:rgba(255,255,255,0.05);
+    padding:15px;
+    border-radius:15px;
 }
 
-h2 {
-    text-align: center;
-}
+.alert {padding:8px;margin:5px;border-radius:8px;}
+.high{background:red;}
+.medium{background:orange;}
+.low{background:green;}
 
-.alert {
-    padding: 10px;
-    margin: 5px 0;
-    border-radius: 10px;
-}
-
-.high { background: #ff3b3b; }
-.medium { background: orange; }
-.low { background: green; }
-
-input {
-    margin: 10px;
-    padding: 8px;
-    width: 200px;
-    border-radius: 5px;
-    border:none;
-}
+#map {height:300px;}
 </style>
 </head>
 
 <body>
 
-<h2>🚀 AI SOC Dashboard</h2>
+<h2 style="text-align:center;">🚀 AI SOC Dashboard</h2>
 
 <center>
-<input id="search" placeholder="Search IP..." onkeyup="filterAlerts()">
+<input id="search" placeholder="Search IP"/>
+<button onclick="exportCSV()">Export CSV</button>
 </center>
 
 <div class="container">
@@ -133,53 +130,76 @@ input {
 <div class="card">
 <h3>🚨 Alerts</h3>
 <div id="alerts"></div>
+
+<h3>🧠 AI Insights</h3>
+<div id="ai"></div>
+
+<h3>📊 Chart</h3>
+<canvas id="chart"></canvas>
 </div>
 
 <div class="card">
 <h3>🌍 Attack Map</h3>
-<p>Map will be added next step 🔥</p>
+<div id="map"></div>
 </div>
 
 </div>
 
 <script>
-async function loadAlerts(){
-    let res = await fetch('/alerts');
-    let data = await res.json();
+let map = L.map('map').setView([20,0],2)
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
-    let html = "";
+async function load(){
+    let res = await fetch('/alerts')
+    let data = await res.json()
+
+    let html=""
+    let high=0, med=0, low=0
+
+    map.eachLayer((l)=>{ if(l instanceof L.Marker) map.removeLayer(l)})
+
     data.forEach(a=>{
-        html += `<div class="alert ${a.level}">
-        ${a.time} | ${a.ip} | ${a.level.toUpperCase()} | Score: ${a.threat_score}
-        </div>`;
-    });
+        html+=`<div class="alert ${a.level}">
+        ${a.ip} | ${a.level} | ${a.threat_score}
+        </div>`
 
-    document.getElementById("alerts").innerHTML = html;
-}
+        if(a.level=="high") high++
+        else if(a.level=="medium") med++
+        else low++
 
-function filterAlerts(){
-    let input = document.getElementById("search").value.toLowerCase();
-    let alerts = document.getElementsByClassName("alert");
-
-    for(let a of alerts){
-        if(a.innerText.toLowerCase().includes(input)){
-            a.style.display = "block";
-        } else {
-            a.style.display = "none";
+        if(a.lat && a.lon){
+            L.circleMarker([a.lat,a.lon]).addTo(map)
         }
-    }
+    })
+
+    document.getElementById("alerts").innerHTML=html
+
+    // chart
+    new Chart(document.getElementById("chart"), {
+        type:'bar',
+        data:{
+            labels:['High','Medium','Low'],
+            datasets:[{data:[high,med,low]}]
+        }
+    })
+
+    // AI
+    let ai = await fetch('/insights')
+    let aiData = await ai.json()
+    document.getElementById("ai").innerText = aiData.msg
 }
 
-setInterval(loadAlerts, 3000);
-loadAlerts();
+function exportCSV(){
+    window.location='/export'
+}
+
+setInterval(load,3000)
+load()
 </script>
 
 </body>
 </html>
 """
 
-# ==============================
-# RUN
-# ==============================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
