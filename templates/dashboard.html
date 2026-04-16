@@ -4,45 +4,53 @@
 <title>AI SOC Dashboard</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
 body {
-    background:#0b1220;
-    color:white;
+    margin:0;
     font-family:Arial;
+    background:linear-gradient(135deg,#0f172a,#020617);
+    color:white;
+}
+
+.light {
+    background:white;
+    color:black;
 }
 
 .header {
     display:flex;
     justify-content:space-between;
-    padding:10px;
-}
-
-button {
-    padding:5px 10px;
-    margin:5px;
+    padding:15px;
 }
 
 .container {
     display:flex;
+    gap:20px;
+    padding:20px;
 }
-
-.left { width:40%; }
-.right { width:60%; }
 
 .card {
-    background:#111827;
-    padding:10px;
-    margin:10px;
-    border-radius:10px;
+    flex:1;
+    padding:15px;
+    border-radius:15px;
+    background:rgba(255,255,255,0.05);
+    backdrop-filter:blur(10px);
 }
 
-.alert { padding:8px; margin:5px; border-radius:8px; }
-.high { background:red; }
-.medium { background:orange; }
-.low { background:green; }
+.alert {
+    padding:10px;
+    margin:5px;
+    border-radius:8px;
+}
 
-#map { height:400px; }
+.high{background:red;}
+.medium{background:orange;}
+.low{background:green;}
+
+#map{height:300px;}
 </style>
 </head>
 
@@ -51,111 +59,92 @@ button {
 <div class="header">
 <h2>🚀 AI SOC Dashboard</h2>
 <div>
-<button onclick="toggleTheme()">🌙 Mode</button>
-<input id="search" placeholder="Search IP..." onkeyup="filterAlerts()">
+<input id="search" placeholder="Search IP">
+<button onclick="toggleMode()">🌗</button>
+<button onclick="exportCSV()">💾</button>
 </div>
 </div>
 
 <div class="container">
 
-<div class="left">
-
-<div class="card">
-<h3>📊 Stats</h3>
-Total: <span id="total">0</span><br>
-High: <span id="high">0</span><br>
-Medium: <span id="medium">0</span><br>
-Low: <span id="low">0</span>
-</div>
-
-<div class="card">
-<h3>🧠 AI Insights</h3>
-<div id="ai"></div>
-</div>
-
 <div class="card">
 <h3>🚨 Alerts</h3>
 <div id="alerts"></div>
+
+<h3>🧠 AI</h3>
+<div id="ai"></div>
+
+<h3>📊 Stats</h3>
+<canvas id="chart"></canvas>
 </div>
 
-</div>
-
-<div class="right">
 <div class="card">
-<h3>🌍 Real Attack Map</h3>
+<h3>🌍 Attack Map</h3>
 <div id="map"></div>
 </div>
-</div>
 
 </div>
-
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
-let map = L.map('map').setView([20,0],2);
+let map = L.map('map').setView([20,0],2)
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+function toggleMode(){
+    document.body.classList.toggle("light")
+}
 
-let allAlerts = [];
+function exportCSV(){
+    window.location="/export"
+}
 
 async function load(){
-    let res = await fetch('/alerts');
-    let data = await res.json();
-    allAlerts = data;
+    let res = await fetch('/alerts')
+    let data = await res.json()
 
-    let alertsDiv = document.getElementById("alerts");
-    alertsDiv.innerHTML = "";
+    let search = document.getElementById("search").value
 
-    let high=0,medium=0,low=0;
+    let html=""
+    let high=0, med=0, low=0
+
+    map.eachLayer(l=>{
+        if(l instanceof L.Marker || l instanceof L.CircleMarker){
+            map.removeLayer(l)
+        }
+    })
 
     data.forEach(a=>{
-        if(a.level=="high") high++;
-        if(a.level=="medium") medium++;
-        if(a.level=="low") low++;
+        if(search && !a.ip.includes(search)) return
 
-        alertsDiv.innerHTML += `
-        <div class="alert ${a.level}">
-        ${a.time} | ${a.ip} | ${a.level.toUpperCase()} | ${a.threat_score}%
-        </div>`;
+        html+=`<div class="alert ${a.level}">
+        ${a.ip} | ${a.level} | ${a.threat_score}
+        </div>`
 
-        // Fake geo coords
-        let lat = Math.random()*140 - 70;
-        let lon = Math.random()*360 - 180;
+        if(a.level=="high") high++
+        else if(a.level=="medium") med++
+        else low++
 
-        L.circleMarker([lat, lon]).addTo(map);
-    });
+        if(a.lat && a.lon){
+            L.circleMarker([a.lat,a.lon]).addTo(map)
+        }
+    })
 
-    document.getElementById("total").innerText=data.length;
-    document.getElementById("high").innerText=high;
-    document.getElementById("medium").innerText=medium;
-    document.getElementById("low").innerText=low;
+    document.getElementById("alerts").innerHTML=html
 
-    document.getElementById("ai").innerHTML =
-        high>5 ? "⚠️ High attack activity" : "✅ System stable";
+    new Chart(document.getElementById("chart"), {
+        type:'doughnut',
+        data:{
+            labels:['High','Medium','Low'],
+            datasets:[{data:[high,med,low]}]
+        }
+    })
+
+    let ai = await fetch('/ai')
+    let aiData = await ai.json()
+    document.getElementById("ai").innerText = aiData.msg
 }
 
-function filterAlerts(){
-    let q = document.getElementById("search").value.toLowerCase();
-    let filtered = allAlerts.filter(a => a.ip.includes(q));
-
-    let alertsDiv = document.getElementById("alerts");
-    alertsDiv.innerHTML = "";
-
-    filtered.forEach(a=>{
-        alertsDiv.innerHTML += `
-        <div class="alert ${a.level}">
-        ${a.time} | ${a.ip}
-        </div>`;
-    });
-}
-
-function toggleTheme(){
-    document.body.style.background =
-        document.body.style.background=="white" ? "#0b1220" : "white";
-}
-
-setInterval(load,3000);
-load();
+setInterval(load,4000)
+load()
 </script>
 
 </body>
