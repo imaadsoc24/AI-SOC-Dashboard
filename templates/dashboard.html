@@ -3,62 +3,61 @@
 <head>
 <title>AI SOC Dashboard</title>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
 <style>
 body {
-    background: radial-gradient(circle at top, #0f172a, #020617);
-    color: white;
-    font-family: Arial;
+    background:#0b1220;
+    color:white;
+    font-family:Arial;
 }
 
-h1 {
-    text-align:center;
-    margin:20px;
+.header {
+    display:flex;
+    justify-content:space-between;
+    padding:10px;
+}
+
+button {
+    padding:5px 10px;
+    margin:5px;
 }
 
 .container {
     display:flex;
-    gap:20px;
 }
 
-.left, .right {
-    width:50%;
-}
+.left { width:40%; }
+.right { width:60%; }
 
 .card {
-    background: rgba(255,255,255,0.05);
-    backdrop-filter: blur(10px);
-    padding:15px;
-    margin:10px;
-    border-radius:15px;
-}
-
-.alert {
+    background:#111827;
     padding:10px;
-    margin:5px;
+    margin:10px;
     border-radius:10px;
 }
 
-.high { background:#ff4d4d; }
-.medium { background:#ffa500; }
-.low { background:#00cc66; }
+.alert { padding:8px; margin:5px; border-radius:8px; }
+.high { background:red; }
+.medium { background:orange; }
+.low { background:green; }
 
-.map-dot {
-    height:10px;
-    width:10px;
-    background:red;
-    border-radius:50%;
-    position:absolute;
-}
+#map { height:400px; }
 </style>
 </head>
 
 <body>
 
-<h1>🚀 AI SOC Dashboard</h1>
+<div class="header">
+<h2>🚀 AI SOC Dashboard</h2>
+<div>
+<button onclick="toggleTheme()">🌙 Mode</button>
+<input id="search" placeholder="Search IP..." onkeyup="filterAlerts()">
+</div>
+</div>
 
 <div class="container">
 
-<!-- LEFT PANEL -->
 <div class="left">
 
 <div class="card">
@@ -75,65 +74,84 @@ Low: <span id="low">0</span>
 </div>
 
 <div class="card">
-<h3>🚨 Live Alerts</h3>
+<h3>🚨 Alerts</h3>
 <div id="alerts"></div>
 </div>
 
 </div>
 
-<!-- RIGHT PANEL -->
 <div class="right">
-
-<div class="card" style="height:400px; position:relative;">
-<h3>🌍 Attack Map</h3>
+<div class="card">
+<h3>🌍 Real Attack Map</h3>
 <div id="map"></div>
 </div>
-
 </div>
 
 </div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
-async function load() {
+let map = L.map('map').setView([20,0],2);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let allAlerts = [];
+
+async function load(){
     let res = await fetch('/alerts');
     let data = await res.json();
+    allAlerts = data;
 
     let alertsDiv = document.getElementById("alerts");
-    let mapDiv = document.getElementById("map");
-
     alertsDiv.innerHTML = "";
-    mapDiv.innerHTML = "";
 
     let high=0,medium=0,low=0;
 
     data.forEach(a=>{
-        let cls = a.level;
-        if(cls=="high") high++;
-        if(cls=="medium") medium++;
-        if(cls=="low") low++;
+        if(a.level=="high") high++;
+        if(a.level=="medium") medium++;
+        if(a.level=="low") low++;
 
         alertsDiv.innerHTML += `
-        <div class="alert ${cls}">
+        <div class="alert ${a.level}">
         ${a.time} | ${a.ip} | ${a.level.toUpperCase()} | ${a.threat_score}%
-        </div>
-        `;
+        </div>`;
 
-        // fake map dots
-        let dot = document.createElement("div");
-        dot.className="map-dot";
-        dot.style.top = Math.random()*300+"px";
-        dot.style.left = Math.random()*300+"px";
-        mapDiv.appendChild(dot);
+        // Fake geo coords
+        let lat = Math.random()*140 - 70;
+        let lon = Math.random()*360 - 180;
+
+        L.circleMarker([lat, lon]).addTo(map);
     });
 
-    document.getElementById("total").innerText = data.length;
-    document.getElementById("high").innerText = high;
-    document.getElementById("medium").innerText = medium;
-    document.getElementById("low").innerText = low;
+    document.getElementById("total").innerText=data.length;
+    document.getElementById("high").innerText=high;
+    document.getElementById("medium").innerText=medium;
+    document.getElementById("low").innerText=low;
 
     document.getElementById("ai").innerHTML =
-        high > 5 ? "⚠️ High threat activity detected"
-        : "✅ System stable";
+        high>5 ? "⚠️ High attack activity" : "✅ System stable";
+}
+
+function filterAlerts(){
+    let q = document.getElementById("search").value.toLowerCase();
+    let filtered = allAlerts.filter(a => a.ip.includes(q));
+
+    let alertsDiv = document.getElementById("alerts");
+    alertsDiv.innerHTML = "";
+
+    filtered.forEach(a=>{
+        alertsDiv.innerHTML += `
+        <div class="alert ${a.level}">
+        ${a.time} | ${a.ip}
+        </div>`;
+    });
+}
+
+function toggleTheme(){
+    document.body.style.background =
+        document.body.style.background=="white" ? "#0b1220" : "white";
 }
 
 setInterval(load,3000);
