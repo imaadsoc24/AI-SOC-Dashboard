@@ -13,28 +13,23 @@ body {
     color: white;
     font-family: Arial;
 }
-
 .container {
     display: flex;
     gap: 20px;
 }
-
 .card {
     background: rgba(255,255,255,0.05);
     padding: 15px;
     border-radius: 10px;
     width: 45%;
 }
-
 .alert {
     padding: 10px;
     margin: 5px;
     border-radius: 5px;
 }
-
 .high { background: red; }
 .medium { background: orange; }
-
 #map { height: 300px; }
 </style>
 </head>
@@ -73,15 +68,19 @@ function loadData(){
 fetch('/alerts')
 .then(res=>res.json())
 .then(data=>{
-    let html = '';
+    let html='';
     let high=0, med=0;
+
+    map.eachLayer(layer=>{
+        if(layer instanceof L.Circle) map.removeLayer(layer);
+    });
 
     data.forEach(a=>{
         html += `<div class="alert ${a.level}">
-        ${a.time} | ${a.ip} | ${a.level} | ${a.threat_score}
+        ${a.time} | ${a.ip} | ${a.level} | Score:${a.threat_score} | ${a.mitre}
         </div>`;
 
-        L.circle([a.lat, a.lon]).addTo(map);
+        L.circle([a.lat,a.lon],{radius:50000}).addTo(map);
 
         if(a.level=="high") high++;
         else med++;
@@ -92,15 +91,15 @@ fetch('/alerts')
     new Chart(document.getElementById("chart"), {
         type: 'bar',
         data: {
-            labels: ["High","Medium"],
-            datasets: [{ data: [high, med] }]
+            labels:["High","Medium"],
+            datasets:[{data:[high,med]}]
         }
     });
 });
 }
 
 function exportCSV(){
-window.location = "/export";
+window.location="/export";
 }
 
 setInterval(loadData,3000);

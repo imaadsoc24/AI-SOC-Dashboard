@@ -1,6 +1,7 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify
 import requests, random, time, csv
 from io import StringIO
+import geoip2.database
 
 app = Flask(__name__)
 
@@ -12,6 +13,11 @@ PASSWORD = "Kle*s6F30b.GiLoyqu62.rlzD5lUuk?1"
 BOT_TOKEN = "8749610900:AAGd7oHByeYFHzqkP1iZ4UMQStSihA4tQoE"
 CHAT_ID = "1452519845"
 
+VT_API = "ec18f73ed6585bd3a9a3ba396486a534f9930bbdf1f50a47c71a4c5ecb0e1f62"
+
+# GeoIP DB file
+GEO_DB = "GeoLite2-City.mmdb"
+
 # ================= TELEGRAM =================
 def send_telegram(msg):
     try:
@@ -20,7 +26,44 @@ def send_telegram(msg):
     except:
         pass
 
-# ================= WAZUH TOKEN =================
+# ================= MITRE =================
+def map_mitre(log):
+    desc = str(log).lower()
+
+    if "ssh" in desc:
+        return "T1110 - Brute Force"
+    elif "user" in desc:
+        return "T1078 - Valid Accounts"
+    elif "process" in desc:
+        return "T1059 - Command Execution"
+    elif "file" in desc:
+        return "T1005 - Data Access"
+    else:
+        return "T1046 - Network Scan"
+
+# ================= GEOIP =================
+def get_geo(ip):
+    try:
+        reader = geoip2.database.Reader(GEO_DB)
+        res = reader.city(ip)
+        return res.location.latitude, res.location.longitude
+    except:
+        return random.uniform(-50,50), random.uniform(-100,100)
+
+# ================= VIRUSTOTAL =================
+def check_vt(ip):
+    try:
+        url = f"https://www.virustotal.com/api/v3/ip_addresses/{ip}"
+        headers = {"x-apikey": VT_API}
+        r = requests.get(url, headers=headers)
+        data = r.json()
+
+        malicious = data["data"]["attributes"]["last_analysis_stats"]["malicious"]
+        return malicious
+    except:
+        return 0
+
+# ================= TOKEN =================
 def get_token():
     try:
         res = requests.post(
@@ -37,9 +80,6 @@ def get_token():
 def get_logs():
     try:
         token = get_token()
-        if not token:
-            raise Exception("No token")
-
         headers = {"Authorization": f"Bearer {token}"}
 
         res = requests.get(
@@ -52,22 +92,16 @@ def get_logs():
         return res.json()["data"]["affected_items"]
 
     except:
-        # 🌐 CLOUD FALLBACK (Render safe)
+        # fallback (for Render)
         demo = []
-        ips = ["8.8.8.8", "1.1.1.1", "185.199.108.153"]
+        ips = ["8.8.8.8","1.1.1.1","185.199.108.153"]
         for _ in range(10):
             demo.append({
                 "timestamp": time.strftime("%H:%M:%S"),
                 "tag": random.choice(ips),
-                "level": random.choice(["info", "error"])
+                "level": random.choice(["info","error"])
             })
         return demo
-
-# ================= AI SCORING =================
-def ai_score(level):
-    if "error" in level:
-        return random.randint(70, 100)
-    return random.randint(30, 60)
 
 # ================= ROUTES =================
 @app.route("/")
@@ -80,39 +114,49 @@ def alerts():
     alerts = []
 
     for log in logs:
-        score = ai_score(log.get("level", ""))
+        ip = log.get("tag","unknown")
+
+        score = random.randint(30,100)
+        vt_score = check_vt(ip)
+
+        if vt_score > 0:
+            score += 20
+
+        lat, lon = get_geo(ip)
+
+        mitre = map_mitre(log)
 
         alert = {
-            "ip": log.get("tag", "unknown"),
+            "ip": ip,
             "level": "high" if score > 70 else "medium",
-            "time": log.get("timestamp", ""),
+            "time": log.get("timestamp",""),
             "threat_score": score,
-            "lat": random.uniform(-50, 50),
-            "lon": random.uniform(-100, 100)
+            "mitre": mitre,
+            "lat": lat,
+            "lon": lon
         }
 
-        if score > 80:
-            send_telegram(f"🚨 HIGH ALERT {alert['ip']} Score:{score}")
+        if score > 85:
+            send_telegram(f"🚨 HIGH ALERT {ip} | {mitre} | Score:{score}")
 
         alerts.append(alert)
 
     return jsonify(alerts)
 
-# ================= CSV EXPORT =================
+# ================= CSV =================
 @app.route("/export")
 def export():
     logs = get_logs()
 
     si = StringIO()
     writer = csv.writer(si)
-
-    writer.writerow(["Time", "IP", "Level"])
+    writer.writerow(["Time","IP","Level"])
 
     for log in logs:
         writer.writerow([
-            log.get("timestamp", ""),
-            log.get("tag", ""),
-            log.get("level", "")
+            log.get("timestamp",""),
+            log.get("tag",""),
+            log.get("level","")
         ])
 
     return si.getvalue()
