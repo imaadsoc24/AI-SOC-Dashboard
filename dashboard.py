@@ -4,11 +4,11 @@ import requests, random, time
 app = Flask(__name__)
 
 # ===== CONFIG =====
-WAZUH_API = "https://localhost:55000"
+WAZUH_API = "https://dice-headlock-uncheck.ngrok-free.dev"
 USERNAME = "wazuh"
 PASSWORD = "Kle*s6F30b.GiLoyqu62.rlzD5lUuk?1"
 
-# 🔔 TELEGRAM CONFIG
+# ===== TELEGRAM CONFIG =====
 BOT_TOKEN = "8749610900:AAGd7oHByeYFHzqkP1iZ4UMQStSihA4tQoE"
 CHAT_ID = "1452519845"
 
@@ -32,14 +32,14 @@ def get_token():
     except:
         return None
 
-# ===== GET REAL ALERTS =====
+# ===== GET ALERTS =====
 def get_wazuh_alerts():
     try:
         token = get_token()
         headers = {"Authorization": f"Bearer {token}"}
 
         res = requests.get(
-            f"{WAZUH_API}/alerts?limit=15",
+            f"{WAZUH_API}/manager/logs?limit=20",
             headers=headers,
             verify=False
         )
@@ -47,26 +47,30 @@ def get_wazuh_alerts():
         return res.json()["data"]["affected_items"]
 
     except:
-        # fallback (for Render)
+        # fallback (render safe)
         return [{
-            "agent": {"name": "demo"},
-            "rule": {"level": random.randint(3,15), "description": "Demo alert"},
             "timestamp": time.strftime("%H:%M:%S"),
-            "data": {"srcip": random.choice(["8.8.8.8","1.1.1.1"])}
+            "tag": "demo",
+            "level": "info",
+            "description": "Demo alert"
         } for _ in range(10)]
 
-# ===== MITRE =====
-def map_mitre(rule_id):
-    if rule_id < 5:
-        return "T1046 - Network Scan"
-    elif rule_id < 10:
-        return "T1110 - Brute Force"
-    elif rule_id < 15:
-        return "T1059 - Command Execution"
-    else:
-        return "T1078 - Valid Accounts"
+# ===== MITRE MAPPING =====
+def map_mitre(desc):
+    desc = str(desc).lower()
 
-# ===== ROUTE =====
+    if "ssh" in desc:
+        return "T1110 - Brute Force"
+    elif "user" in desc:
+        return "T1078 - Valid Accounts"
+    elif "process" in desc:
+        return "T1059 - Command Execution"
+    elif "file" in desc:
+        return "T1005 - Data from Local System"
+    else:
+        return "T1046 - Network Scan"
+
+# ===== ROUTES =====
 @app.route("/")
 def home():
     return render_template("dashboard.html")
@@ -77,36 +81,28 @@ def alerts():
     alerts = []
 
     for log in logs:
-        ip = log.get("data", {}).get("srcip", "local")
-        level = log.get("rule", {}).get("level", 0)
-        desc = log.get("rule", {}).get("description", "unknown")
-        agent = log.get("agent", {}).get("name", "unknown")
+        desc = log.get("description", "")
+        level_raw = log.get("level", "info")
 
-        mitre = map_mitre(level)
+        level = "high" if "error" in level_raw else "medium"
+        score = 80 if level == "high" else 50
 
         alert = {
-            "ip": ip,
-            "level": "high" if level > 10 else "medium",
+            "ip": log.get("tag", "local"),
+            "level": level,
             "time": log.get("timestamp", ""),
             "desc": desc,
-            "agent": agent,
-            "mitre": mitre,
-            "lat": random.uniform(-50,50),
-            "lon": random.uniform(-100,100)
+            "mitre": map_mitre(desc),
+            "score": score,
+            "lat": random.uniform(-50, 50),
+            "lon": random.uniform(-100, 100)
         }
 
-        # 🚨 TELEGRAM ALERT (ONLY HIGH)
-        if level > 12:
-            send_telegram(
-                f"🚨 HIGH ALERT\n"
-                f"IP: {ip}\n"
-                f"Agent: {agent}\n"
-                f"Attack: {desc}\n"
-                f"MITRE: {mitre}\n"
-                f"Time: {alert['time']}"
-            )
-
         alerts.append(alert)
+
+        # 🚨 TELEGRAM ALERT
+        if level == "high":
+            send_telegram(f"🚨 ALERT\n{alert}")
 
     return jsonify(alerts)
 
