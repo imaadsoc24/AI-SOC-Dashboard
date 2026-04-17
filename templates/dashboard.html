@@ -1,101 +1,240 @@
 <!DOCTYPE html>
 <html>
 <head>
-<title>AI SOC Dashboard</title>
+    <title>AI SOC Dashboard</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<style>
-body {
-    background: #0b1220;
-    color: white;
-    font-family: Arial;
-}
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-.header {
-    display:flex;
-    justify-content: space-between;
-    margin-bottom:20px;
-}
+    <style>
+        body {
+            margin:0;
+            font-family: Arial;
+            background: radial-gradient(circle at top, #0f172a, #020617);
+            color:white;
+            padding:20px;
+        }
 
-.card {
-    background: rgba(255,255,255,0.05);
-    padding:15px;
-    border-radius:10px;
-    margin-bottom:20px;
-}
+        h1 { margin:0; }
 
-.alert {
-    padding:10px;
-    margin:5px;
-    border-radius:6px;
-    font-size:14px;
-}
+        /* HEADER */
+        .header {
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            margin-bottom:20px;
+        }
 
-.high { background:#ff3b3b; }
-.medium { background:#f59e0b; }
+        .top-bar {
+            display:flex;
+            gap:10px;
+        }
 
-.container {
-    display:flex;
-    gap:20px;
-}
+        #search {
+            padding:10px;
+            border-radius:10px;
+            border:none;
+            background:#020617;
+            color:white;
+            width:250px;
+        }
 
-#map { height:350px; }
-</style>
+        button {
+            background:linear-gradient(45deg,#3b82f6,#06b6d4);
+            border:none;
+            padding:10px;
+            border-radius:10px;
+            color:white;
+            cursor:pointer;
+        }
+
+        /* GRID */
+        .container {
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:20px;
+        }
+
+        @media(max-width:900px){
+            .container { grid-template-columns:1fr; }
+        }
+
+        /* CARDS */
+        .card {
+            background:rgba(255,255,255,0.05);
+            padding:20px;
+            border-radius:20px;
+            box-shadow:0 0 20px rgba(0,0,0,0.3);
+            transition:0.3s;
+        }
+
+        .card:hover {
+            box-shadow:0 0 25px #3b82f6;
+        }
+
+        /* ALERT */
+        .alert {
+            padding:15px;
+            border-radius:12px;
+            margin-bottom:10px;
+            border-left:5px solid white;
+        }
+
+        .high { background:linear-gradient(90deg,#ff4d4d,#ff0000); }
+        .medium { background:linear-gradient(90deg,#facc15,#f59e0b); }
+
+        #map { height:400px; border-radius:10px; }
+
+        canvas { margin-top:20px; }
+    </style>
 </head>
 
 <body>
 
+<!-- HEADER -->
 <div class="header">
-<h1>🚀 AI SOC Dashboard</h1>
-<input id="search" placeholder="Search IP">
+    <h1>🚀 AI SOC Dashboard</h1>
+
+    <div class="top-bar">
+        <input id="search" placeholder="🔍 Search threats..." onkeyup="filterAlerts()"/>
+        <button onclick="exportCSV()">⬇ Export</button>
+    </div>
 </div>
 
+<!-- STATS -->
+<div class="container" style="grid-template-columns:repeat(3,1fr); margin-bottom:20px;">
+    <div class="card"><h3>🚨 High</h3><h2 id="highCount">0</h2></div>
+    <div class="card"><h3>⚠ Medium</h3><h2 id="mediumCount">0</h2></div>
+    <div class="card"><h3>🌍 Total</h3><h2 id="totalCount">0</h2></div>
+</div>
+
+<!-- MAIN -->
 <div class="container">
 
-<div class="card" style="width:50%">
-<h3>🔥 Live Alerts</h3>
-<div id="alerts"></div>
-</div>
+    <!-- ALERTS -->
+    <div class="card">
+        <h3>🔥 Live Alerts</h3>
+        <div id="alerts"></div>
+        <canvas id="chart"></canvas>
+    </div>
 
-<div class="card" style="width:50%">
-<h3>🌍 Attack Map</h3>
-<div id="map"></div>
-</div>
+    <!-- MAP -->
+    <div class="card">
+        <h3>🌍 Attack Map</h3>
+        <div id="map"></div>
+    </div>
 
 </div>
 
 <script>
-let map = L.map('map').setView([20,0],2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+let allAlerts = [];
 
-function loadData(){
-fetch('/alerts')
-.then(res=>res.json())
-.then(data=>{
+/* MAP */
+var map = L.map('map').setView([20,0],2);
 
-    let html = "";
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'SOC'
+}).addTo(map);
 
-    map.eachLayer(layer=>{
-        if(layer instanceof L.Circle) map.removeLayer(layer);
-    });
-
-    data.forEach(a=>{
-        html += `<div class="alert ${a.level}">
-        ⏱ ${a.time} | 🖥 ${a.agent} | 🌐 ${a.ip}<br>
-        ⚠ ${a.desc}<br>
-        🎯 ${a.mitre}
-        </div>`;
-
-        L.circle([a.lat,a.lon],{radius:40000}).addTo(map);
-    });
-
-    document.getElementById("alerts").innerHTML = html;
+/* CHART */
+let chart = new Chart(document.getElementById("chart"),{
+    type:'bar',
+    data:{
+        labels:["High","Medium"],
+        datasets:[{label:"Threats", data:[0,0]}]
+    }
 });
+
+/* FETCH */
+async function loadAlerts(){
+    let res = await fetch("/alerts");
+    let data = await res.json();
+
+    allAlerts = data;
+    renderAlerts(data);
 }
 
-setInterval(loadData,3000);
+/* RENDER */
+function renderAlerts(data){
+    let container = document.getElementById("alerts");
+    container.innerHTML="";
+    map.eachLayer(l => { if(l._path) map.removeLayer(l); });
+
+    let high=0, medium=0;
+
+    data.forEach(a => {
+
+        if(a.level==="high") high++; else medium++;
+
+        let div = document.createElement("div");
+        div.className="alert "+a.level;
+
+        div.innerHTML = `
+        ${a.time} | ${a.ip} | ${a.level.toUpperCase()} <br>
+        🧠 ${a.mitre} <br>
+        💻 ${a.agent} <br>
+        📌 ${a.desc}
+        `;
+
+        container.appendChild(div);
+
+        if(a.lat && a.lon){
+            L.circle([a.lat,a.lon],{
+                radius:150000,
+                color:a.level==="high"?"red":"orange"
+            }).addTo(map);
+        }
+
+    });
+
+    /* UPDATE STATS */
+    document.getElementById("highCount").innerText=high;
+    document.getElementById("mediumCount").innerText=medium;
+    document.getElementById("totalCount").innerText=data.length;
+
+    /* UPDATE CHART */
+    chart.data.datasets[0].data=[high,medium];
+    chart.update();
+}
+
+/* SEARCH */
+function filterAlerts(){
+    let v=document.getElementById("search").value.toLowerCase();
+
+    let f=allAlerts.filter(a =>
+        a.ip.toLowerCase().includes(v) ||
+        a.mitre.toLowerCase().includes(v) ||
+        a.desc.toLowerCase().includes(v)
+    );
+
+    renderAlerts(f);
+}
+
+/* CSV */
+function exportCSV(){
+    let csv="IP,Level,Time,MITRE,Agent,Desc\n";
+
+    allAlerts.forEach(a=>{
+        csv+=`${a.ip},${a.level},${a.time},${a.mitre},${a.agent},${a.desc}\n`;
+    });
+
+    let blob=new Blob([csv]);
+    let url=URL.createObjectURL(blob);
+
+    let a=document.createElement("a");
+    a.href=url;
+    a.download="alerts.csv";
+    a.click();
+}
+
+/* AUTO REFRESH */
+setInterval(loadAlerts,5000);
+loadAlerts();
+
 </script>
 
 </body>
