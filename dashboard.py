@@ -39,7 +39,7 @@ def get_wazuh_alerts():
         headers = {"Authorization": f"Bearer {token}"}
 
         res = requests.get(
-            f"{WAZUH_API}/manager/logs?limit=20",
+            f"{WAZUH_API}/alerts?limit=20",
             headers=headers,
             verify=False
         )
