@@ -5,59 +5,65 @@
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
 body {
-    background: #0f172a;
+    background: #0b1220;
     color: white;
     font-family: Arial;
 }
-.container {
-    display: flex;
-    gap: 20px;
+
+.header {
+    display:flex;
+    justify-content: space-between;
+    margin-bottom:20px;
 }
+
 .card {
     background: rgba(255,255,255,0.05);
-    padding: 15px;
-    border-radius: 10px;
-    width: 45%;
+    padding:15px;
+    border-radius:10px;
+    margin-bottom:20px;
 }
+
 .alert {
-    padding: 10px;
-    margin: 5px;
-    border-radius: 5px;
+    padding:10px;
+    margin:5px;
+    border-radius:6px;
+    font-size:14px;
 }
-.high { background: red; }
-.medium { background: orange; }
-#map { height: 300px; }
+
+.high { background:#ff3b3b; }
+.medium { background:#f59e0b; }
+
+.container {
+    display:flex;
+    gap:20px;
+}
+
+#map { height:350px; }
 </style>
 </head>
 
 <body>
 
+<div class="header">
 <h1>🚀 AI SOC Dashboard</h1>
-
 <input id="search" placeholder="Search IP">
-<button onclick="exportCSV()">Export CSV</button>
+</div>
 
 <div class="container">
 
-<div class="card">
-<h3>Alerts</h3>
+<div class="card" style="width:50%">
+<h3>🔥 Live Alerts</h3>
 <div id="alerts"></div>
 </div>
 
-<div class="card">
-<h3>Attack Map</h3>
+<div class="card" style="width:50%">
+<h3>🌍 Attack Map</h3>
 <div id="map"></div>
 </div>
 
-</div>
-
-<div class="card">
-<h3>Threat Chart</h3>
-<canvas id="chart"></canvas>
 </div>
 
 <script>
@@ -68,8 +74,8 @@ function loadData(){
 fetch('/alerts')
 .then(res=>res.json())
 .then(data=>{
-    let html='';
-    let high=0, med=0;
+
+    let html = "";
 
     map.eachLayer(layer=>{
         if(layer instanceof L.Circle) map.removeLayer(layer);
@@ -77,29 +83,16 @@ fetch('/alerts')
 
     data.forEach(a=>{
         html += `<div class="alert ${a.level}">
-        ${a.time} | ${a.ip} | ${a.level} | Score:${a.threat_score} | ${a.mitre}
+        ⏱ ${a.time} | 🖥 ${a.agent} | 🌐 ${a.ip}<br>
+        ⚠ ${a.desc}<br>
+        🎯 ${a.mitre}
         </div>`;
 
-        L.circle([a.lat,a.lon],{radius:50000}).addTo(map);
-
-        if(a.level=="high") high++;
-        else med++;
+        L.circle([a.lat,a.lon],{radius:40000}).addTo(map);
     });
 
-    document.getElementById('alerts').innerHTML = html;
-
-    new Chart(document.getElementById("chart"), {
-        type: 'bar',
-        data: {
-            labels:["High","Medium"],
-            datasets:[{data:[high,med]}]
-        }
-    });
+    document.getElementById("alerts").innerHTML = html;
 });
-}
-
-function exportCSV(){
-window.location="/export";
 }
 
 setInterval(loadData,3000);
