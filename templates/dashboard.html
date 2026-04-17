@@ -9,142 +9,101 @@
 
 <style>
 body {
-    margin:0;
-    font-family:Arial;
-    background:linear-gradient(135deg,#0f172a,#020617);
-    color:white;
-}
-
-.light {
-    background:white;
-    color:black;
-}
-
-.header {
-    display:flex;
-    justify-content:space-between;
-    padding:15px;
+    background: #0f172a;
+    color: white;
+    font-family: Arial;
 }
 
 .container {
-    display:flex;
-    gap:20px;
-    padding:20px;
+    display: flex;
+    gap: 20px;
 }
 
 .card {
-    flex:1;
-    padding:15px;
-    border-radius:15px;
-    background:rgba(255,255,255,0.05);
-    backdrop-filter:blur(10px);
+    background: rgba(255,255,255,0.05);
+    padding: 15px;
+    border-radius: 10px;
+    width: 45%;
 }
 
 .alert {
-    padding:10px;
-    margin:5px;
-    border-radius:8px;
+    padding: 10px;
+    margin: 5px;
+    border-radius: 5px;
 }
 
-.high{background:red;}
-.medium{background:orange;}
-.low{background:green;}
+.high { background: red; }
+.medium { background: orange; }
 
-#map{height:300px;}
+#map { height: 300px; }
 </style>
 </head>
 
 <body>
 
-<div class="header">
-<h2>🚀 AI SOC Dashboard</h2>
-<div>
+<h1>🚀 AI SOC Dashboard</h1>
+
 <input id="search" placeholder="Search IP">
-<button onclick="toggleMode()">🌗</button>
-<button onclick="exportCSV()">💾</button>
-</div>
-</div>
+<button onclick="exportCSV()">Export CSV</button>
 
 <div class="container">
 
 <div class="card">
-<h3>🚨 Alerts</h3>
+<h3>Alerts</h3>
 <div id="alerts"></div>
-
-<h3>🧠 AI</h3>
-<div id="ai"></div>
-
-<h3>📊 Stats</h3>
-<canvas id="chart"></canvas>
 </div>
 
 <div class="card">
-<h3>🌍 Attack Map</h3>
+<h3>Attack Map</h3>
 <div id="map"></div>
 </div>
 
 </div>
 
-<script>
-let map = L.map('map').setView([20,0],2)
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map)
+<div class="card">
+<h3>Threat Chart</h3>
+<canvas id="chart"></canvas>
+</div>
 
-function toggleMode(){
-    document.body.classList.toggle("light")
+<script>
+let map = L.map('map').setView([20,0],2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+function loadData(){
+fetch('/alerts')
+.then(res=>res.json())
+.then(data=>{
+    let html = '';
+    let high=0, med=0;
+
+    data.forEach(a=>{
+        html += `<div class="alert ${a.level}">
+        ${a.time} | ${a.ip} | ${a.level} | ${a.threat_score}
+        </div>`;
+
+        L.circle([a.lat, a.lon]).addTo(map);
+
+        if(a.level=="high") high++;
+        else med++;
+    });
+
+    document.getElementById('alerts').innerHTML = html;
+
+    new Chart(document.getElementById("chart"), {
+        type: 'bar',
+        data: {
+            labels: ["High","Medium"],
+            datasets: [{ data: [high, med] }]
+        }
+    });
+});
 }
 
 function exportCSV(){
-    window.location="/export"
+window.location = "/export";
 }
 
-async function load(){
-    let res = await fetch('/alerts')
-    let data = await res.json()
-
-    let search = document.getElementById("search").value
-
-    let html=""
-    let high=0, med=0, low=0
-
-    map.eachLayer(l=>{
-        if(l instanceof L.Marker || l instanceof L.CircleMarker){
-            map.removeLayer(l)
-        }
-    })
-
-    data.forEach(a=>{
-        if(search && !a.ip.includes(search)) return
-
-        html+=`<div class="alert ${a.level}">
-        ${a.ip} | ${a.level} | ${a.threat_score}
-        </div>`
-
-        if(a.level=="high") high++
-        else if(a.level=="medium") med++
-        else low++
-
-        if(a.lat && a.lon){
-            L.circleMarker([a.lat,a.lon]).addTo(map)
-        }
-    })
-
-    document.getElementById("alerts").innerHTML=html
-
-    new Chart(document.getElementById("chart"), {
-        type:'doughnut',
-        data:{
-            labels:['High','Medium','Low'],
-            datasets:[{data:[high,med,low]}]
-        }
-    })
-
-    let ai = await fetch('/ai')
-    let aiData = await ai.json()
-    document.getElementById("ai").innerText = aiData.msg
-}
-
-setInterval(load,4000)
-load()
+setInterval(loadData,3000);
 </script>
 
 </body>
